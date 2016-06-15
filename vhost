@@ -1,0 +1,551 @@
+#!/opt/data/php/use/bin/php
+<?php
+/**
+ *  Apache vhost create script
+ * 
+ * @author  daniel.luo@tenfsoftware.com
+ */
+if (PHP_SAPI !== 'cli') {
+        echo 'bin/magento must be run as a CLI application' . PHP_EOL;
+    exit(1);
+}
+
+class vhost
+{
+        const ROOT_DIR = '/opt/data/apache/use/htdocs/';
+
+        const HTML_DIR = 'public_html';
+
+        const CONFIG_DIR = '/opt/data/apache/vhosts/';
+
+        const CONFIG_SUFFIX = '.conf';
+
+        const CGI_DIR = '/opt/data/php/CGI/';
+
+        const HOST_FILE = '/etc/hosts';
+
+        const HOST_IP = '127.0.0.1';
+
+        const HELPER_INFO_SPACE = 30;
+
+        protected $_configFile;
+
+        protected $_argv = [];
+
+        protected $_argc = [];
+
+        protected $_text;
+
+        protected $_msgs = [];
+
+        protected $_error = [];
+
+        protected $_cgiList = [];
+
+        protected $_required = [
+                '--domain',
+        ];
+
+        protected $_params = [
+                '--ip'             =>    'IP address',
+                '--port'         =>    'Server port', 
+                '--dir'            =>    'Website root dir',
+                '--entrance-dir' =>    'Website entrance file position, default is root dir',
+                '--domain'   =>    'Server domain',
+                '--index'       =>    'VirtualHost index options',
+                '--alias'         =>    'Server alias',
+                '--email'       =>    'Server admin email.', 
+                '--fcgid'        =>    'Whether use fcgid mode, default is true',
+                '--add-cgi'    =>    'Add new cgi script, this value is php version number. Need root permission',
+                '--php'          =>    'PHP version number. default use env default version php -v',
+                '--list'            =>    'Show all avaliavble php version number',
+                '--help'         =>    'Show this help list',
+        ];
+
+        protected $_options = [
+                '--ip'                 =>    '*',
+                '--port'             =>    80, 
+                '--dir'                =>    '',
+                '--entrance-dir'     =>    '',
+                '--domain'       =>    'demo.tenfsoftware.com',
+                '--index'           =>    'pro',
+                '--alias'            =>    null,
+                '--email'          =>    'support@tenfsoftware.com', 
+                '--fcgid'            =>    'true', // true or false
+                '--php'             =>    'default', // PHP version number.
+        ];
+
+        protected $_color = [
+                'bold'      => "\033[1m%s\033[0m",
+                'dark'      => "\033[2m%s\033[0m",
+                'italic'    => "\033[3m%s\033[0m",
+                'underline' => "\033[4m%s\033[0m",
+                'blink'     => "\033[5m%s\033[0m",
+                'reverse'   => "\033[7m%s\033[0m",
+                'concealed' => "\033[8m%s\033[0m",
+                // foreground colors
+                'black'     => "\033[30m%s\033[0m",
+                'red'       => "\033[31m%s\033[0m",
+                'green'     => "\033[32m%s\033[0m",
+                'yellow'    => "\033[33m%s\033[0m",
+                'blue'      => "\033[34m%s\033[0m",
+                'magenta'   => "\033[35m%s\033[0m",
+                'cyan'      => "\033[36m%s\033[0m",
+                'white'     => "\033[37m%s\033[0m",
+        ];
+
+
+        public function __construct($argv, $argc)
+        {
+                $this->_argv = $argv;
+                $this->_argc = $argc;
+                $this->emptyParam();
+                $this->run();
+        }
+
+
+        public function run()
+        {
+                switch ($this->__getOption($this->_argv[1])) {
+                        case '--help':
+                                $this->__showHelp();
+                                break;
+                        case '--list':
+                                $this->__showCgiList();
+                        case 'add:vhost':
+                                $this->__validateInput();
+                                $this->__create();
+                                break;
+                        case 'add:cgi':
+                                $this->createCGIScript();
+                                break;
+                        default:
+                                $this->__showHelp();
+                                break;
+                }
+        }
+
+
+        public function emptyParam()
+        {
+                if ($this->_argc < 2) {
+                        echo $this->__getHelpInfo();
+                        exit(1);
+                }
+        }
+
+
+        protected function __validateInput()
+        {
+                // if ROOT_DIR not exist
+                if (!file_exists(self::ROOT_DIR)) {
+                    $this->__text(self::ROOT_DIR . ' not exist.')->__error()->displayError();
+                    exit(1);
+                }
+
+                $required = count($this->_required);
+                $input = [];
+                $count = 0;
+
+                foreach ($this->_argv as $index => $v) {
+                        if ($index < 2) continue;
+                        $option = explode('=', $v);
+                        if (isset($option[1]) && $option[1] != '') {
+                                $input[$option[0]] = $option[1] ;
+
+                                // replace options default value
+                                if (array_key_exists($option[0], $this->_options)) {
+                                    $this->_options[$option[0]] = $option[1];
+                                }
+                        } else {
+                            $this->__text($option[0] . ' is empty.')->__error();
+                        }
+                }
+
+                foreach ($this->_required as $k) {
+                        if (array_key_exists($k, $input)) {
+                                $count++;
+                        } else {
+                                $this->__text($k . ' is required.')->__error();
+                        }
+                }
+
+                if (array_key_exists('--php', $input)) {
+                        if (!in_array($input['--php'], $this->getCgiList())) {
+                                 $this->__text($this->__style('green', $input['--php']) . $this->__style('red', ' CGI script not exist.'))->__error();
+                        }
+                }
+    
+                $this->displayError();
+        }
+
+
+        protected function __showHelp()
+        {
+                echo $this->__getHelpInfo();
+                exit;
+        }
+
+
+        protected function __getHelpInfo()
+        {
+                $left = '      ';
+
+                $helpInfo = PHP_EOL;
+                $helpInfo .= $left. $this->__style('bold', $this->__style('blue', 'Create Virtual Host v0.1'));
+
+                $helpInfo .= PHP_EOL . PHP_EOL;
+                foreach ($this->_params as $key => $desc) {
+                        $helpInfo .= $left . str_pad($this->__style('yellow', $key), self::HELPER_INFO_SPACE, ' ') . $this->__style('green', $desc);
+
+                        if (in_array($key, $this->_required)) {
+                                $helpInfo .= $this->__style('red', ' required');
+                        }
+
+                        $helpInfo .= PHP_EOL;
+                }
+
+                $helpInfo .= PHP_EOL;
+                $helpInfo .= $left . $this->__style('cyan', 'vhost  add:vhost --domain=[...] --dir=[...]');
+                $helpInfo .= PHP_EOL;
+                $helpInfo .= $left . $this->__style('cyan', 'sudo vhost  add:cgi --add-cgi=[...]');
+                $helpInfo .= PHP_EOL . PHP_EOL;
+
+                return $helpInfo;
+        }
+
+
+        protected function __text($text)
+        {
+                if (!isset($this->_msgs[$text]) && !empty($text)) {
+                        $this->_text = $text;
+                        $this->_msgs[$this->_text] = $this->_text;
+                }
+                return $this;
+        }
+
+
+        protected function __color($color)
+        {
+                $this->_msgs[$this->_text] = sprintf($this->_color[$color], $this->_text);
+                ksort($this->_msgs);
+                return $this;
+        }
+
+
+        protected function __style($color, $text)
+        {
+                $this->_msgs[ $text] = sprintf($this->_color[$color], $text);
+                ksort($this->_msgs);
+                return $this->_msgs[ $text];
+        }
+
+
+        protected function render()
+        {
+                echo implode(PHP_EOL, $this->_msgs) . PHP_EOL;
+                exit(1);
+        }
+
+
+        protected function __error($text = null)
+        {
+                if (!empty($text)) {
+                    $this->_text = $text;
+                }
+
+                $this->_error[] = $this->__style('red', 'Error: ') . $this->__style('red', $this->_text);
+                unset($this->_msgs[$this->_text]);
+                $this->_text = '';
+                return $this;
+        }
+
+
+        public function displayError()
+        {
+                if (count($this->_error)) {
+                        echo implode(PHP_EOL, $this->_error) . PHP_EOL;
+                        exit(1);
+                }
+        }
+
+
+        protected function __getOption($argv)
+        {
+                $arg = explode('=', $argv);
+                return $arg[0];
+        }
+
+
+        /*************************
+         * start create vhost file
+         **************************/
+        protected function __create()
+        {
+            // create dir
+            $this->__setPublicHtmlDir();
+            $this->__setWebEntranceDir();
+            $this->__setAlias();
+            $this->__setIndexOptions();
+
+            // set vhost base params
+            $this->_configFile = sprintf($this->virtualHostTemplate(), 
+                $this->_options['--ip'], $this->_options['--port'], // *:80
+                $this->_options['--email'], // default is support@tenfsoftware.com
+                $this->_options['--entrance-dir'],
+                $this->_options['--domain'],
+                $this->_options['--alias'],
+                $this->_options['--php'], // PHP version number or default
+                $this->_options['--entrance-dir'],
+                $this->_options['--index'], // vhost indes options
+                self::CGI_DIR,
+                $this->_options['--php'], // PHP version number or default
+                $this->_options['--domain'],
+                $this->_options['--domain']
+                // $this->_options[''],
+            );
+
+            // create base dir
+            $this->__createPublicHtmlDir();
+            // create apache vhost file
+            $this->makeConfigFile();
+
+            // add record to hosts file
+            $this->addToHosts(self::HOST_IP, $this->_options['--domain']);
+        }
+
+
+        protected function virtualHostTemplate()
+        {
+                $tpl =<<<eod
+<VirtualHost %s:%d>
+    ServerAdmin %s
+    DocumentRoot "%s"
+    ServerName %s
+    %s
+
+    # Add php support, through fcgid_module
+    <IfModule fcgid_module>
+        ScriptAlias /fcgi-bin/ "/opt/data/php/%s/bin/"
+        <Directory %s>
+%s
+
+            AllowOverride All
+            AddHandler fcgid-script .php
+            FCGIWrapper %s%s.cgi .php
+            Order allow,deny
+            Allow from all
+            Require all granted
+        </Directory>
+    </IfModule>
+
+    ErrorLog "logs/%s-error_log"
+    CustomLog "logs/%s-access_log" common
+</VirtualHost>
+eod;
+            return $tpl;
+        }
+
+
+        protected function __setIndexOptions()
+        {
+                if ($this->_options['--index'] == 'pro') {
+                        $this->_options['--index'] =<<<eod
+            Options +ExecCGI
+eod;
+                } else {
+                        $this->_options['--index'] =<<<eod
+            Options Indexes FollowSymLinks Includes ExecCGI
+            IndexOptions FancyIndexing ScanHTMLTitles NameWidth=25 DescriptionWidth=128 VersionSort FoldersFirst
+            DirectoryIndex index.html index.htm default.htm index.php default.php index.cgi default.cgi index.pl default.pl index.shtml
+eod;
+                }
+        }
+
+
+        public function createFile($path, $fileName, $data)
+        {
+            if (file_exists($path)) {
+                $this->__error('File have exist: ' . $fileName)->displayError();
+            } else {
+                $fp = fopen($path, 'w+');
+                fwrite($fp, $data);
+                fclose($fp);
+            }
+        }
+        
+        
+        public function makeConfigFile()
+        {
+            $this->createFile($this->getConfigFilePath(), $this->getConfigFileName(), $this->_configFile);
+        }
+        
+        
+        public function getConfigFileName()
+        {
+            return $this->_options['--domain'] . self::CONFIG_SUFFIX;
+        }
+        
+        
+        public function getConfigFilePath()
+        {
+            return self::CONFIG_DIR . $this->getConfigFileName();
+        }
+        
+        
+        protected function __setPublicHtmlDir()
+        {
+            if (empty($this->_options['--dir'])) {
+                $this->_options['--dir'] = self::ROOT_DIR . '/' . $this->_options['--php'] . '/' . $this->_options['--domain'] . '/' . self::HTML_DIR;
+            } else {
+                $this->_options['--dir'] = self::ROOT_DIR . '/' . self::HTML_DIR;
+            }
+
+            $this->__getPath($this->_options['--dir']);
+        }
+
+
+        protected function __setWebEntranceDir()
+        {
+            if (!empty($this->_options['--entrance-dir'])) {
+                $this->_options['--entrance-dir'] = $this->_options['--dir'] . '/' . $this->_options['--entrance-dir'];
+            } else {
+                $this->_options['--entrance-dir'] = $this->_options['--dir'];
+            }
+
+            $this->__getPath($this->_options['--entrance-dir']);
+        }
+
+
+        protected function __getPath(&$path)
+        {
+            // replace //
+            while (preg_match("/\/\//", $path)) {
+                $path = preg_replace("/\/\//", '/', $path);
+            }
+
+            str_replace("'", '', str_replace('"', '', $path));
+        }
+
+
+        protected function __createPublicHtmlDir()
+        {
+                $path = str_replace(self::ROOT_DIR, '', $this->_options['--dir']);
+                $path = explode('/', $path);
+
+                $dir = self::ROOT_DIR;
+                foreach ($path as $dirName) {
+                        $dir .= '/' . $dirName;
+                        $dir = str_replace('//', '/', $dir);
+                        if (!file_exists($dir)) {
+                                mkdir($dir);
+                        }
+                }
+        }
+
+
+        protected function __setAlias()
+        {
+                if ($this->_options['--alias']) {
+                        $this->_options['--alias'] = 'ServerAlias ' . $this->_options['--alias'];
+                }
+        }
+
+
+        /****************************
+         *  Show CGI list
+         * ***************************/
+        protected function __showCgiList()
+        {
+                $this->getCgiList();
+
+                $this->render();
+        }
+
+
+        protected function getCgiList()
+        {
+                if (is_dir(self::CGI_DIR)) {
+                        if ($handle = opendir(self::CGI_DIR)) {
+                                while (false !== ($file = readdir($handle))) {
+                                        if ($file !== '.' && $file !== '..') {
+                                                $this->_cgiList[] = str_replace('.cgi', '', $file);
+                                                $this->__style('green', str_replace('.cgi', '', $file));
+                                        }
+                                }
+                        }
+                        closedir($handle);
+                }
+
+                return $this->_cgiList;
+        }
+
+
+        /************************
+         * Start modify hosts
+         ************************/
+        public function addToHosts($ip, $domain)
+        {
+                $record = str_pad($ip, 50, ' ', STR_PAD_RIGHT) . $domain . PHP_EOL;
+
+                if (!$this->hasHostsRecord($record)) {
+                    file_put_contents(self::HOST_FILE, $record, FILE_APPEND);
+                }
+        }
+
+
+        public function hasHostsRecord($record)
+        {
+                return stripos(file_get_contents(self::HOST_FILE), $record);
+        }
+
+
+        public function disableHosts($domain)
+        {
+
+        }
+
+
+        public function createCGIScript()
+        {
+            $script =<<<eod
+#!/bin/sh
+version="%s"
+PHP_DIR=/opt/data/php/
+
+PHPRC=$PHP_DIR/${version}/lib/php.ini
+export PHPRC
+
+PHP_FCGI_CHILDREN=8
+export PHP_FCGI_CHILDREN
+
+PHP_FCGI_MAX_REQUESTS=5000
+export PHP_FCGI_MAX_REQUESTS
+
+# which php-cgi binary to execute, New php dir
+exec $PHP_DIR/${version}/bin/php-cgi
+eod;
+
+            $option = explode('=', $this->_argv[2]);
+            $this->_options['--add-cgi'] = $option[1];
+            $fileName = $this->_options['--add-cgi'] . '.cgi';
+            $filePath = self::CGI_DIR . '/' . $fileName;
+            $this->__getPath($filePath);
+
+            $this->createFile($filePath, $fileName, sprintf($script, $this->_options['--add-cgi']));
+        }
+
+
+        public static function debug($debug, $mod = false)
+        {
+            if ($mod) {
+                var_dump($debug);
+            } else {
+                print_r($debug);
+            }
+            exit;
+        }
+}
+
+new vhost($argv, $argc);
+
