@@ -58,6 +58,7 @@ class vhost
                 '--fcgid'        =>    'Whether use fcgid mode, default is true',
                 '--add-cgi'    =>    'Add new cgi script, this value is php version number. Need root permission',
                 '--php'          =>    'PHP version number. default use env default version php -v',
+                '--fpm-port' =>    'PHP version port, all port prefix is 9+php_version number, eg: 7.0.7 is 9707; use this you need config php-fpm.conf',
                 '--list'            =>    'Show all avaliavble php version number',
                 '--help'         =>    'Show this help list',
         ];
@@ -71,8 +72,9 @@ class vhost
                 '--index'           =>    'pro',
                 '--alias'            =>    null,
                 '--email'          =>    'support@tenfsoftware.com', 
-                '--fcgid'            =>    'true', // true or false
+                '--fcgid'            =>    'false', // true or false
                 '--php'             =>    'default', // PHP version number.
+                '--fpm-port'    =>    9707 // PHP fpm leason port
         ];
 
         protected $_color = [
@@ -288,22 +290,36 @@ class vhost
             $this->__setAlias();
             $this->__setIndexOptions();
 
-            // set vhost base params
-            $this->_configFile = sprintf($this->virtualHostTemplate(), 
-                $this->_options['--ip'], $this->_options['--port'], // *:80
-                $this->_options['--email'], // default is support@tenfsoftware.com
-                $this->_options['--entrance-dir'],
-                $this->_options['--domain'],
-                $this->_options['--alias'],
-                $this->_options['--php'], // PHP version number or default
-                $this->_options['--entrance-dir'],
-                $this->_options['--index'], // vhost indes options
-                self::CGI_DIR,
-                $this->_options['--php'], // PHP version number or default
-                $this->_options['--domain'],
-                $this->_options['--domain']
-                // $this->_options[''],
-            );
+            if ($this->_options['--fcgid'] == 'true') {
+                // set vhost base params
+                $this->_configFile = sprintf($this->virtualHostTemplate(), 
+                    $this->_options['--ip'], $this->_options['--port'], // *:80
+                    $this->_options['--email'], // default is support@tenfsoftware.com
+                    $this->_options['--entrance-dir'],
+                    $this->_options['--domain'],
+                    $this->_options['--alias'],
+                    $this->_options['--php'], // PHP version number or default
+                    $this->_options['--entrance-dir'],
+                    $this->_options['--index'], // vhost indes options
+                    self::CGI_DIR,
+                    $this->_options['--php'], // PHP version number or default
+                    $this->_options['--domain'],
+                    $this->_options['--domain']
+                    // $this->_options[''],
+                );
+            } else {
+                $this->_configFile = sprintf($this->virtualHostPhpFpmTemplate(), 
+                    $this->_options['--ip'], $this->_options['--port'], // *:80
+                    $this->_options['--email'], // default is support@tenfsoftware.com
+                    $this->_options['--entrance-dir'],
+                    $this->_options['--domain'],
+                    $this->_options['--alias'],
+                    $this->_options['--entrance-dir'],
+                    $this->_options['--index'], // vhost indes options
+                    $this->_options['--fpm-port'] // PHP version number or default
+                    // $this->_options[''],
+                );
+            }
 
             // create base dir
             $this->__createPublicHtmlDir();
@@ -342,6 +358,40 @@ class vhost
     ErrorLog "logs/%s-error_log"
     CustomLog "logs/%s-access_log" common
 </VirtualHost>
+eod;
+            return $tpl;
+        }
+
+        protected function virtualHostPhpFpmTemplate()
+        {
+            $tpl =<<<eod
+<VirtualHost %s:%d>
+    ServerAdmin %s
+    DocumentRoot "%s"
+    ServerName %s
+    %s
+
+    # Add php-fpm support
+    <Directory %s>
+%s
+
+        AllowOverride All
+        Require all granted
+    </Directory>
+
+    ProxyRequests Off
+    <FilesMatch \.php$>
+        # 2.4.10+ can proxy to unix socket
+        # SetHandler "proxy:unix:/var/run/php5-fpm.sock|fcgi://localhost/"
+
+        # Else we can just use a tcp socket:
+        #SetHandler "proxy:fcgi://127.0.0.1:9000"
+        SetHandler "proxy:fcgi://127.0.0.1:%s"
+    </FilesMatch>
+
+    ErrorLog "logs/vhost-common-error_log"
+    #CustomLog "logs/common-access_log" common
+</VirtualHost>            
 eod;
             return $tpl;
         }
