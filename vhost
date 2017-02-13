@@ -316,7 +316,8 @@ class vhost
                     $this->_options['--alias'],
                     $this->_options['--entrance-dir'],
                     $this->_options['--index'], // vhost indes options
-                    $this->_options['--fpm-port'] // PHP version number or default
+                    $this->_options['--fpm-port'], // PHP version number or default
+                    $this->_options['--domain']
                     // $this->_options[''],
                 );
             }
@@ -388,6 +389,12 @@ eod;
         #SetHandler "proxy:fcgi://127.0.0.1:9000"
         SetHandler "proxy:fcgi://127.0.0.1:%s"
     </FilesMatch>
+
+    <Proxy "http://%s">
+        ProxySet connectiontimeout=5 timeout=600
+    </Proxy>
+    Timeout 600
+    ProxyTimeout 600
 
     ErrorLog "logs/vhost-common-error_log"
     #CustomLog "logs/common-access_log" common
