@@ -1,4 +1,4 @@
-#!/opt/data/php/use/bin/php
+#!/usr/bin/php
 <?php
 /**
  *  Apache vhost create script
@@ -12,11 +12,11 @@ if (PHP_SAPI !== 'cli') {
 
 class vhost
 {
-        const ROOT_DIR = '/opt/data/apache/use/htdocs/';
+        const ROOT_DIR = '/var/www/html/';
 
         const HTML_DIR = 'public_html';
 
-        const CONFIG_DIR = '/opt/data/apache/vhosts/';
+        const CONFIG_DIR = '/opt/data/vhosts/';
 
         const CONFIG_SUFFIX = '.conf';
 
@@ -58,7 +58,7 @@ class vhost
                 '--fcgid'        =>    'Whether use fcgid mode, default is true',
                 '--add-cgi'    =>    'Add new cgi script, this value is php version number. Need root permission',
                 '--php'          =>    'PHP version number. default use env default version php -v',
-                '--fpm-port' =>    'PHP version port, all port prefix is 9+php_version number, eg: 7.0.7 is 9707; use this you need config php-fpm.conf',
+                '--php-fpm' =>    'PHP fpm version eg: 7.0',
                 '--list'            =>    'Show all avaliavble php version number',
                 '--help'         =>    'Show this help list',
         ];
@@ -73,8 +73,8 @@ class vhost
                 '--alias'            =>    null,
                 '--email'          =>    'support@tenfsoftware.com', 
                 '--fcgid'            =>    'false', // true or false
-                '--php'             =>    'default', // PHP version number.
-                '--fpm-port'    =>    9707 // PHP fpm leason port
+                '--php'             =>    '7.0.16', // PHP version number.
+                '--php-fpm'    =>    '7.0' // PHP fpm leason port
         ];
 
         protected $_color = [
@@ -172,11 +172,14 @@ class vhost
                         }
                 }
 
-                if (array_key_exists('--php', $input)) {
-                        if (!in_array($input['--php'], $this->getCgiList())) {
-                                 $this->__text($this->__style('green', $input['--php']) . $this->__style('red', ' CGI script not exist.'))->__error();
-                        }
-                }
+                // We not need use CGI script way run php website
+                // if (array_key_exists('--php', $input)) {
+                //     if ($input['--fcgid'] === true) {
+                //         if (!in_array($input['--php'], $this->getCgiList())) {
+                //                  $this->__text($this->__style('green', $input['--php']) . $this->__style('red', ' CGI script not exist.'))->__error();
+                //         }
+                //     }
+                // }
     
                 $this->displayError();
         }
@@ -316,7 +319,7 @@ class vhost
                     $this->_options['--alias'],
                     $this->_options['--entrance-dir'],
                     $this->_options['--index'], // vhost indes options
-                    $this->_options['--fpm-port'], // PHP version number or default
+                    $this->_options['--php-fpm'], // PHP fpm version number or default
                     $this->_options['--domain']
                     // $this->_options[''],
                 );
@@ -380,24 +383,21 @@ eod;
         Require all granted
     </Directory>
 
-    ProxyRequests Off
-    <FilesMatch \.php$>
-        # 2.4.10+ can proxy to unix socket
-        # SetHandler "proxy:unix:/var/run/php5-fpm.sock|fcgi://localhost/"
-
-        # Else we can just use a tcp socket:
-        #SetHandler "proxy:fcgi://127.0.0.1:9000"
-        SetHandler "proxy:fcgi://127.0.0.1:%s"
-    </FilesMatch>
-
-    <Proxy "http://%s">
-        ProxySet connectiontimeout=5 timeout=600
-    </Proxy>
     Timeout 600
     ProxyTimeout 600
-
-    ErrorLog "logs/vhost-common-error_log"
-    #CustomLog "logs/common-access_log" common
+    <FilesMatch ".+\.ph(p[3457]?|t|tml)$">
+        SetHandler "proxy:unix:/run/php/php%s-fpm.sock|fcgi://localhost"
+    </FilesMatch>
+    <FilesMatch ".+\.phps$">
+        # Deny access to raw php sources by default
+        # To re-enable it's recommended to enable access to the files
+        # only in specific virtual host or directory
+        Require all denied
+    </FilesMatch>
+    # Deny access to files without filename (e.g. '.php')
+    <FilesMatch "^\.ph(p[3457]?|t|tml|ps)$">
+        Require all denied
+    </FilesMatch>
 </VirtualHost>            
 eod;
             return $tpl;
@@ -408,7 +408,7 @@ eod;
         {
                 if ($this->_options['--index'] == 'pro') {
                         $this->_options['--index'] =<<<eod
-            Options +ExecCGI
+        Options +Indexes +FollowSymLinks -MultiViews
 eod;
                 } else {
                         $this->_options['--index'] =<<<eod
